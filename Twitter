@@ -1,0 +1,154 @@
+var CONSUMER_KEY = '';
+var CONSUMER_SECRET = '';
+
+/**
+ * Authorizes and makes a request to the Twitter API.
+ */
+function Twitter_RawData() {
+  var twt_service = getService();
+  if (twt_service.hasAccess()) {
+    var sheetname = "Twitter_RawData";
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    SpreadsheetApp.setActiveSheet(ss.getSheetByName(sheetname));
+    var last_row = SpreadsheetApp.getActiveSheet().getLastRow();
+    var since_id = SpreadsheetApp.getActiveSheet().getRange(last_row, 1,1,1).getValue();
+    
+    var twit_username = 'societygrownups';
+    var getTweets = twt_service.fetch('https://api.twitter.com/1.1/statuses/user_timeline.json?screen_name='+twit_username+'&count=50&since_id='+since_id+'&include_rts=false');
+    var data = JSON.parse(getTweets.getContentText());
+    
+    var twit_mastarr = [];
+    var hashtag_mastarr = [];
+    
+    for(i=0; i<data.length;i++){
+      var twit_temparr = [];
+      var twitterdate = new Date(data[i].created_at);
+      var date = Utilities.formatDate(twitterdate, "GMT-4", "MM/dd/YYYY");
+      var time = Utilities.formatDate(twitterdate, "GMT-4", "HH:mm");
+      var day = Utilities.formatDate(twitterdate, "GMT-4", "EEE");
+      var status_url = 'https://www.twitter.com/'+twit_username+'/status/'+data[i].id_str;
+      //Logger.log('Length: '+data[i].entities.hashtags.length);
+      //Logger.log(data[i].entities.hashtags);
+      twit_temparr.push(data[i].id_str,status_url,date,time,day,data[i].text,data[i].favorite_count,data[i].retweet_count);
+      twit_mastarr.push(twit_temparr);
+      
+      var hashtag_temparr = [];
+      if(data[i].entities.hashtags != null){
+        hashtag_temparr.push(data[i].entities.hashtags.length);
+        for(a=0;a<data[i].entities.hashtags.length;a++){
+          //Logger.log(data[i].entities.hashtags[a].text);
+          hashtag_temparr.push(data[i].entities.hashtags[a].text); 
+        }
+      }else{hashtag_temparr.push(0);}
+      hashtag_mastarr.push(hashtag_temparr); 
+    }
+    
+    //FOR LOOP TO WRITE MASTARRS TO SHEET
+    var tweets_reversed = twit_mastarr.reverse();
+    var hashtags_reversed = hashtag_mastarr.reverse();
+    
+    for(z=0;z<tweets_reversed.length;z++){
+      var next_row = SpreadsheetApp.getActiveSheet().getLastRow()+1;
+      var first_range = SpreadsheetApp.getActiveSheet().getRange(next_row, 1,1,tweets_reversed[z].length);
+      first_range.setValues([tweets_reversed[z]]);
+      var second_range = SpreadsheetApp.getActiveSheet().getRange(next_row, 16,1,hashtags_reversed[z].length);
+      second_range.setValues([hashtags_reversed[z]]); 
+    }
+    
+  } else {
+    var authorizationUrl = twt_service.authorize();
+    Logger.log('Open the following URL and re-run the script: %s',
+        authorizationUrl);
+  }
+}
+
+function Twitter_UpdatingFavsRts(){
+  var twt_service = getService();
+  if (twt_service.hasAccess()) {
+    //GETTING 50 MOST RECENT TWEET IDs
+    var history_length = 50;
+    var sheetname = "Twitter_RawData";
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    SpreadsheetApp.setActiveSheet(ss.getSheetByName(sheetname));
+    var last_row = SpreadsheetApp.getActiveSheet().getLastRow();
+    var recent_ids = SpreadsheetApp.getActiveSheet().getRange(last_row-history_length,1,51,1).getValues();
+    var recent_FavsRts = SpreadsheetApp.getActiveSheet().getRange(last_row-history_length,7,51,2).getValues();
+    
+    
+    //GETTING API CALL URL
+    /*
+    var ids_connected = recent_ids[0][0]+',';
+    for(t=1;t<recent_ids.length-1;t++){
+      ids_connected = ids_connected+recent_ids[t][0]+',';
+    }
+    
+    ids_connected = ids_connected+recent_ids[history_length][0];
+    */
+    
+    //Logger.log(ids_connected);
+       
+    //CHECKING EACH ID
+    for(i=0;i<recent_ids.length;i++){
+      var getIDs = twt_service.fetch('https://api.twitter.com/1.1/statuses/lookup.json?id='+recent_ids[i][0]);
+      var id_response = JSON.parse(getIDs.getContentText());
+      if(id_response[0].favorite_count != recent_FavsRts[i][0]){
+        SpreadsheetApp.getActiveSheet().getRange(last_row-(history_length-i),7,1,1).clearContent();
+        SpreadsheetApp.getActiveSheet().getRange(last_row-(history_length-i),7,1,1).setValue(id_response[0].favorite_count);
+      }else{}
+      
+      if(id_response[0].retweet_count != recent_FavsRts[i][1]){
+        SpreadsheetApp.getActiveSheet().getRange(last_row-(history_length-i),8,1,1).clearContent();
+        SpreadsheetApp.getActiveSheet().getRange(last_row-(history_length-i),8,1,1).setValue(id_response[0].retweet_count);
+      }else{}
+    }
+    
+    
+  } else {
+    var authorizationUrl = service.getAuthorizationUrl();
+    Logger.log('Open the following URL and re-run the script: %s',
+        authorizationUrl);
+  }
+}
+
+/**
+ * Reset the authorization state, so that it can be re-tested.
+ */
+function reset() {
+  var twt_service = getService();
+  twt_service.reset();
+}
+
+/**
+ * Configures the service.
+ */
+function getService() {
+  return OAuth1.createService('Twitter')
+      // Set the endpoint URLs.
+      .setAccessTokenUrl('https://api.twitter.com/oauth/access_token')
+      .setRequestTokenUrl('https://api.twitter.com/oauth/request_token')
+      .setAuthorizationUrl('https://api.twitter.com/oauth/authorize')
+
+      // Set the consumer key and secret.
+      .setConsumerKey(CONSUMER_KEY)
+      .setConsumerSecret(CONSUMER_SECRET)
+
+      // Set the name of the callback function in the script referenced
+      // above that should be invoked to complete the OAuth flow.
+      .setCallbackFunction('authCallback')
+
+      // Set the property store where authorized tokens should be persisted.
+      .setPropertyStore(PropertiesService.getUserProperties());
+}
+
+/**
+ * Handles the OAuth callback.
+ */
+function authCallback(request) {
+  var twt_service = getService();
+  var authorized = twt_service.handleCallback(request);
+  if (authorized) {
+    return HtmlService.createHtmlOutput('Success!');
+  } else {
+    return HtmlService.createHtmlOutput('Denied');
+  }
+}
